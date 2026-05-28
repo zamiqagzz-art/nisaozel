@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Nisa'ya Özel 🎀</title>
+    <style>
+        body {
+            background-color: #ffeef2;
+            font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .kart {
+            background-color: #ffffff;
+            border: 4px solid #ffb7ca;
+            border-radius: 30px;
+            padding: 40px 30px;
+            text-align: center;
+            box-shadow: 0 8px 20px rgba(255, 183, 202, 0.4);
+            max-width: 450px;
+            width: 90%;
+        }
+
+        .fiyonk {
+            color: #ff4f79;
+            font-size: 35px;
+            margin-bottom: 15px;
+        }
+
+        .yazi {
+            font-size: 22px;
+            font-weight: bold;
+            color: #ff4f79;
+            margin-bottom: 30px;
+            line-height: 1.6;
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .buton-grubu {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .buton {
+            background-color: #ff7899;
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 5px 0 #d64d6e;
+            transition: 0.1s;
+        }
+
+        .buton:active {
+            transform: translateY(4px);
+            box-shadow: 0 1px 0 #d64d6e;
+        }
+
+        .kalp {
+            position: absolute;
+            color: #ff4f79;
+            font-size: 20px;
+            animation: ucma 3s linear infinite;
+            bottom: -20px;
+            opacity: 0;
+        }
+
+        @keyframes ucma {
+            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(-100vh) rotate(360deg); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="kart">
+        <div class="fiyonk">🎀 🐾 🎀</div>
+        <div id="mesaj" class="yazi">Selam Nisa ya naber?</div>
+        <div id="butonlar" class="buton-grubu">
+            <button class="buton" onclick="secenek('iyiyim')">İyiyim</button>
+            <button class="buton" onclick="secenek('kotuyum')">Kötüyüm</button>
+        </div>
+    </div>
+
+    <script>
+        function secenek(durum) {
+            const mesaj = document.getElementById('mesaj');
+            const butonlar = document.getElementById('butonlar');
+
+            if (durum === 'iyiyim') {
+                mesaj.innerHTML = "Bende iyiyim valla ya nisa bisey dicem ama bidaha tikla";
+                butonlar.innerHTML = `<button class="buton" onclick="secenek('iyiyim_devam')">Tıkla</button>`;
+            } 
+            else if (durum === 'kotuyum') {
+                mesaj.innerHTML = "Kusmeseydik kotu olmazdin belki :( tikla sen bidaha";
+                butonlar.innerHTML = `<button class="buton" onclick="secenek('kotuyum_devam')">Tıkla</button>`;
+            } 
+            else if (durum === 'iyiyim_devam') {
+                mesaj.innerHTML = "Barışalım mı?";
+                butonlar.innerHTML = `
+                    <button class="buton" onclick="secenek('evet_kalpli')">Evet</button>
+                    <button class="buton" onclick="secenek('hayir_sade')">Hayır</button>
+                `;
+            } 
+            else if (durum === 'kotuyum_devam') {
+                mesaj.innerHTML = "Barisalim bidaha esseklik etmicem sana soz";
+                butonlar.innerHTML = `
+                    <button class="buton" onclick="secenek('evet_kalpli')">Evet</button>
+                    <button class="buton" onclick="secenek('hayir_sade')">Hayır</button>
+                `;
+            } 
+            // Evet veya Hayır seçildiğinde eski yazılar siliniyor ve sadece senin notun geliyor
+            else if (durum === 'evet_kalpli') {
+                mesaj.innerHTML = "ben bunu goremiyorum ama instadan yazarsan gorurum cansin";
+                butonlar.innerHTML = '';
+                kalpYagmuru();
+            } 
+            else if (durum === 'hayir_sade') {
+                mesaj.innerHTML = "ben bunu goremiyorum ama instadan yazarsan gorurum cansin";
+                butonlar.innerHTML = '';
+            }
+        }
+
+        function kalpYagmuru() {
+            for (let i = 0; i < 35; i++) {
+                setTimeout(() => {
+                    let kalp = document.createElement('div');
+                    kalp.className = 'kalp';
+                    kalp.innerHTML = '❤️';
+                    kalp.style.left = Math.random() * 100 + 'vw';
+                    kalp.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                    kalp.style.fontSize = (Math.random() * 20 + 15) + 'px';
+                    document.body.appendChild(kalp);
+                }, i * 120);
+            }
+        }
+    </script>
+
+</body>
+</html>
