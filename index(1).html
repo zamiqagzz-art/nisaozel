@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>1v1 Mobil Futbol - Sıfır Boşluk Edition</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            background: #121212;
+            overflow: hidden;
+            touch-action: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: sans-serif;
+        }
+        /* Giriş Perdesi - Tam ekran kilidini açmak için şart */
+        #intro-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(18, 18, 18, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            color: white;
+        }
+        #start-btn {
+            background: #2e7d32;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 22px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+            margin-top: 20px;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background: #2e7d32;
+        }
+        #score-board {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.6);
+            pointer-events: none;
+            z-index: 5;
+            background: rgba(0,0,0,0.3);
+            padding: 5px 20px;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="intro-overlay">
+        <h2>1v1 KANKA FUTBOLU</h2>
+        <p style="color: #aaa; margin-top: 5px;">En iyi deneyim için telefonu yatay tutun</p>
+        <button id="start-btn" onclick="startMobileGame()">OYUNA BAŞLA</button>
+    </div>
+
+    <div id="game-container">
+        <div id="score-board">KIRMIZI: 0  |  MAVİ: 0</div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const scoreBoard = document.getElementById("score-board");
+const overlay = document.getElementById("intro-overlay");
+
+// Dinamik Ekran Boyutlandırması (Siyah boşlukları yok eden kısım)
+let W = window.innerWidth;
+let H = window.innerHeight;
+canvas.width = W;
+canvas.height = H;
+
+window.addEventListener("resize", () => {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+    initPositions();
+});
+
+// SES MOTORU
+let audioCtx;
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+function playKickSound() {
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.12);
+}
+
+function playGoalSound() {
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const bufferSize = audioCtx.sampleRate * 1.2;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) { data[i] = Math.random() * 2 - 1; }
+    const noise = audioCtx.createBufferSource(); noise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter(); filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(350, audioCtx.currentTime);
+    const gain = audioCtx.createGain(); gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.2);
+    noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+    noise.start();
+}
+
+// Oyun Nesneleri Dinamik Tanımlama
+const p1 = { x: 0, y: 0, r: 0, speed: 4.5, score: 0, color: "#d32f2f", isShooting: false, vx: 0, vy: 0 };
+const p2 = { x: 0, y: 0, r: 0, speed: 4.5, score: 0, color: "#1976d2", isShooting: false, vx: 0, vy: 0 };
+const ball = { x: 0, y: 0, r: 0, vx: 0, vy: 0, drag: 0.982, color: "#ffffff", defaultColor: "#ffffff" };
+
+// Sahayı ve dinamik boyutları ekrana oranla ayarla
+let field = {};
+let joyP1 = {}, btnP1 = {}, joyP2 = {}, btnP2 = {};
+
+function initPositions() {
+    // Nesne boyutları ekran yüksekliğine göre ölçeklenir
+    p1.r = H * 0.045;
+    p2.r = H * 0.045;
+    ball.r = H * 0.022;
+
+    // Saha sınırları (Çizgilerin ekrana tam oturması için %4 marjin)
+    field = {
+        x: W * 0.04,
+        y: H * 0.04,
+        width: W * 0.92,
+        height: H * 0.92,
+        goalHeight: H * 0.32,
+        goalDepth: W * 0.03
+    };
+
+    // İlk konumlandırma
+    if(p1.x === 0) {
+        p1.x = W * 0.25; p1.y = H * 0.5;
+        p2.x = W * 0.75; p2.y = H * 0.5;
+        ball.x = W * 0.5; ball.y = H * 0.5;
+    }
+
+    // Mobil Kontrollerin Parmak Hizasına Sabitlenmesi (Ekranın en alt köşeleri)
+    const joyRadius = H * 0.11;
+    joyP1 = { cx: W * 0.1, cy: H * 0.78, rZone: joyRadius, rHandle: joyRadius * 0.4, hx: W * 0.1, hy: H * 0.78, active: false, touchId: null, inputX: 0, inputY: 0 };
+    btnP1 = { cx: W * 0.22, cy: H * 0.82, r: H * 0.065, active: false, touchId: null };
+
+    joyP2 = { cx: W * 0.9, cy: H * 0.78, rZone: joyRadius, rHandle: joyRadius * 0.4, hx: W * 0.9, hy: H * 0.78, active: false, touchId: null, inputX: 0, inputY: 0 };
+    btnP2 = { cx: W * 0.78, cy: H * 0.82, r: H * 0.065, active: false, touchId: null };
+}
+
+let isGoalScored = false; let goalResetTimer = 0;
+
+// TAM EKRAN + OYUN BAŞLATMA TETİKÇİSİ
+function startMobileGame() {
+    initAudio();
+    const docElm = document.documentElement;
+    if (docElm.requestFullscreen) docElm.requestFullscreen();
+    else if (docElm.webkitRequestFullscreen) docElm.webkitRequestFullscreen();
+    
+    overlay.style.display = "none";
+    initPositions();
+    gameLoop();
+}
+
+// Dokunmatik Koordinat Yakalayıcı
+function getCanvasTouchPos(touch) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+}
+
+canvas.addEventListener("touchstart", (e) => {
+    if (e.cancelable) e.preventDefault(); 
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        const pos = getCanvasTouchPos(touch);
+
+        if (pos.x < W / 2) {
+            let distJoy = Math.sqrt((pos.x - joyP1.cx)**2 + (pos.y - joyP1.cy)**2);
+            let distBtn = Math.sqrt((pos.x - btnP1.cx)**2 + (pos.y - btnP1.cy)**2);
+            if (distJoy < joyP1.rZone + 30 && !joyP1.active) { joyP1.active = true; joyP1.touchId = touch.identifier; }
+            else if (distBtn < btnP1.r + 20 && !btnP1.active) { btnP1.active = true; btnP1.touchId = touch.identifier; }
+        } else {
+            let distJoy = Math.sqrt((pos.x - joyP2.cx)**2 + (pos.y - joyP2.cy)**2);
+            let distBtn = Math.sqrt((pos.x - btnP2.cx)**2 + (pos.y - btnP2.cy)**2);
+            if (distJoy < joyP2.rZone + 30 && !joyP2.active) { joyP2.active = true; joyP2.touchId = touch.identifier; }
+            else if (distBtn < btnP2.r + 20 && !btnP2.active) { btnP2.active = true; btnP2.touchId = touch.identifier; }
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener("touchmove", (e) => {
+    if (e.cancelable) e.preventDefault();
+    for (let i = 0; i < e.touches.length; i++) {
+        const touch = e.touches[i];
+        const pos = getCanvasTouchPos(touch);
+
+        if (joyP1.active && touch.identifier === joyP1.touchId) {
+            let dx = pos.x - joyP1.cx; let dy = pos.y - joyP1.cy;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist > joyP1.rZone) { dx = (dx / dist) * joyP1.rZone; dy = (dy / dist) * joyP1.rZone; }
+            joyP1.hx = joyP1.cx + dx; joyP1.hy = joyP1.cy + dy;
+            joyP1.inputX = dx / joyP1.rZone; joyP1.inputY = dy / joyP1.rZone;
+        }
+        if (joyP2.active && touch.identifier === joyP2.touchId) {
+            let dx = pos.x - joyP2.cx; let dy = pos.y - joyP2.cy;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist > joyP2.rZone) { dx = (dx / dist) * joyP2.rZone; dy = (dy / dist) * joyP2.rZone; }
+            joyP2.hx = joyP2.cx + dx; joyP2.hy = joyP2.cy + dy;
+            joyP2.inputX = dx / joyP2.rZone; joyP2.inputY = dy / joyP2.rZone;
+        }
+    }
+}, { passive: false });
+
+const handleTouchEnd = (e) => {
+    if (e.cancelable) e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        if (joyP1.active && touch.identifier === joyP1.touchId) { joyP1.active = false; joyP1.touchId = null; joyP1.hx = joyP1.cx; joyP1.hy = joyP1.cy; joyP1.inputX = 0; joyP1.inputY = 0; }
+        if (btnP1.active && touch.identifier === btnP1.touchId) { btnP1.active = false; btnP1.touchId = null; }
+        if (joyP2.active && touch.identifier === joyP2.touchId) { joyP2.active = false; joyP2.touchId = null; joyP2.hx = joyP2.cx; joyP2.hy = joyP2.cy; joyP2.inputX = 0; joyP2.inputY = 0; }
+        if (btnP2.active && touch.identifier === btnP2.touchId) { btnP2.active = false; btnP2.touchId = null; }
+    }
+};
+canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
+canvas.addEventListener("touchcancel", handleTouchEnd, { passive: false });
+
+function triggerGoal(winner) {
+    isGoalScored = true; ball.color = winner.color; ball.vx = 0; ball.vy = 0;
+    goalResetTimer = 90; playGoalSound();
+}
+
+function resetRound() {
+    ball.x = W / 2; ball.y = H / 2; ball.vx = 0; ball.vy = 0;
+    ball.color = ball.defaultColor; p1.x = W * 0.25; p1.y = H * 0.5; p2.x = W * 0.75; p2.y = H * 0.5;
+    p1.vx = 0; p1.vy = 0; p2.vx = 0; p2.vy = 0;
+    isGoalScored = false;
+}
+
+function getCollision(obj1, obj2) {
+    let dx = obj2.x - obj1.x; let dy = obj2.y - obj1.y; let dist = Math.sqrt(dx*dx + dy*dy);
+    return { collided: dist < obj1.r + obj2.r, dx, dy, dist };
+}
+
+function update() {
+    if (isGoalScored) { goalResetTimer--; if (goalResetTimer <= 0) resetRound(); return; }
+
+    p1.isShooting = btnP1.active; p2.isShooting = btnP2.active;
+
+    // KEMİK KONTROL ENTEGRASYONU (Dokunmatik hassasiyeti tavan)
+    p1.vx = joyP1.inputX * p1.speed; p1.vy = joyP1.inputY * p1.speed;
+    p2.vx = joyP2.inputX * p2.speed; p2.vy = joyP2.inputY * p2.speed;
+
+    p1.x += p1.vx; p1.y += p1.vy; p2.x += p2.vx; p2.y += p2.vy;
+
+    // Oyuncu çarpışması
+    let p1p2Hit = getCollision(p1, p2);
+    if (p1p2Hit.collided) {
+        let overlap = (p1.r + p2.r) - p1p2Hit.dist;
+        p1.x -= (p1p2Hit.dx / p1p2Hit.dist) * (overlap / 2); p1.y -= (p1p2Hit.dy / p1p2Hit.dist) * (overlap / 2);
+        p2.x += (p1p2Hit.dx / p1p2Hit.dist) * (overlap / 2); p2.y += (p1p2Hit.dy / p1p2Hit.dist) * (overlap / 2);
+    }
+
+    // Saha Sınırları Koruyucu
+    [p1, p2].forEach(p => {
+        if (p.x < field.x + p.r) p.x = field.x + p.r; 
+        if (p.x > field.x + field.width - p.r) p.x = field.x + field.width - p.r;
+        if (p.y < field.y + p.r) p.y = field.y + p.r; 
+        if (p.y > field.y + field.height - p.r) p.y = field.y + field.height - p.r;
+    });
+
+    ball.x += ball.vx; ball.y += ball.vy;
+    ball.vx *= ball.drag; ball.vy *= ball.drag;
+
+    const goalTop = field.y + (field.height - field.goalHeight) / 2;
+    const goalBottom = goalTop + field.goalHeight;
+
+    // Alt Üst Duvar Çarpışmaları
+    if (ball.y < field.y + ball.r) { ball.y = field.y + ball.r; ball.vy *= -1; playKickSound(); }
+    if (ball.y > field.height + field.y - ball.r) { ball.y = field.height + field.y - ball.r; ball.vy *= -1; playKickSound(); }
+
+    // Sol Kale Fiziği
+    if (ball.x < field.x + ball.r) {
+        if (ball.y > goalTop && ball.y < goalBottom) {
+            if (ball.x < field.x - field.goalDepth + ball.r) {
+                p2.score++; scoreBoard.innerHTML = `KIRMIZI: ${p1.score}  |  MAVİ: ${p2.score}`; triggerGoal(p2);
+            }
+            if (ball.y < goalTop + 4 || ball.y > goalBottom - 4) { ball.vy *= -1; playKickSound(); }
+        } else { ball.x = field.x + ball.r; ball.vx *= -1; playKickSound(); }
+    }
+
+    // Sağ Kale Fiziği
+    if (ball.x > field.width + field.x - ball.r) {
+        if (ball.y > goalTop && ball.y < goalBottom) {
+            if (ball.x > field.width + field.x + field.goalDepth - ball.r) {
+                p1.score++; scoreBoard.innerHTML = `KIRMIZI: ${p1.score}  |  MAVİ: ${p2.score}`; triggerGoal(p1);
+            }
+            if (ball.y < goalTop + 4 || ball.y > goalBottom - 4) { ball.vy *= -1; playKickSound(); }
+        } else { ball.x = field.width + field.x - ball.r; ball.vx *= -1; playKickSound(); }
+    }
+
+    // Topa Vurma ve Süzülme Dengesi
+    [p1, p2].forEach((p) => {
+        let ballHit = getCollision(p, ball);
+        if (ballHit.collided) {
+            let overlap = (p.r + ball.r) - ballHit.dist;
+            ball.x += (ballHit.dx / ballHit.dist) * overlap;
+            ball.y += (ballHit.dy / ballHit.dist) * overlap;
+
+            if (p.isShooting) {
+                let power = H * 0.048; // Ekran yüksekliğine göre mükemmel şut gücü
+                ball.vx = (ballHit.dx / ballHit.dist) * power;
+                ball.vy = (ballHit.dy / ballHit.dist) * power;
+                playKickSound();
+            } else {
+                ball.vx = p.vx * 1.2 + (ballHit.dx / ballHit.dist) * 0.6;
+                ball.vy = p.vy * 1.2 + (ballHit.dy / ballHit.dist) * 0.6;
+            }
+        }
+    });
+}
+
+function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const goalTop = field.y + (field.height - field.goalHeight) / 2;
+    const goalBottom = goalTop + field.goalHeight;
+    
+    // Arka Plan Kaleler (Fileli)
+    ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 2;
+    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    ctx.fillRect(field.x - field.goalDepth, goalTop, field.goalDepth, field.goalHeight);
+    ctx.strokeRect(field.x - field.goalDepth, goalTop, field.goalDepth, field.goalHeight);
+    ctx.fillRect(field.x + field.width, goalTop, field.goalDepth, field.goalHeight);
+    ctx.strokeRect(field.x + field.width, goalTop, field.goalDepth, field.goalHeight);
+
+    // Çim Çizgileri
+    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 4;
+    ctx.strokeRect(field.x, field.y, field.width, field.height);
+    ctx.beginPath(); ctx.moveTo(W/2, field.y); ctx.lineTo(W/2, field.y + field.height); ctx.stroke();
+    ctx.beginPath(); ctx.arc(W/2, field.y + field.height/2, H * 0.15, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeRect(field.x, goalTop - 20, H * 0.18, field.goalHeight + 40);
+    ctx.strokeRect(field.x + field.width - (H * 0.18), goalTop - 20, H * 0.18, field.goalHeight + 40);
+
+    // Beyaz Kale Ön Direkleri
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(field.x, goalTop); ctx.lineTo(field.x, goalBottom); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(field.x + field.width, goalTop); ctx.lineTo(field.x + field.width, goalBottom); ctx.stroke();
+
+    // Oyuncular
+    [p1, p2].forEach(p => {
+        if (p.isShooting && !isGoalScored) {
+            ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, Math.PI*2); ctx.stroke();
+        }
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 2; ctx.stroke();
+    });
+
+    // Top
+    ctx.fillStyle = ball.color; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); ctx.fill();
+
+    // SÜPER MOBİL JOYSICK & BUTON RENDER (Saydam, Görüşü Kapatmayan Tasarım)
+    ctx.fillStyle = "rgba(255, 255, 255, 0.05)"; ctx.strokeStyle = "rgba(255, 255, 255, 0.15)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(joyP1.cx, joyP1.cy, joyP1.rZone, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.beginPath(); ctx.arc(joyP1.hx, joyP1.hy, joyP1.rHandle, 0, Math.PI*2); ctx.fill();
+    
+    ctx.fillStyle = btnP1.active ? "rgba(211, 47, 47, 0.6)" : "rgba(255, 255, 255, 0.15)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.beginPath(); ctx.arc(btnP1.cx, btnP1.cy, btnP1.r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ffffff"; ctx.font = `bold ${H * 0.025}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("ŞUT", btnP1.cx, btnP1.cy);
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.05)"; ctx.strokeStyle = "rgba(255, 255, 255, 0.15)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(joyP2.cx, joyP2.cy, joyP2.rZone, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.beginPath(); ctx.arc(joyP2.hx, joyP2.hy, joyP2.rHandle, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = btnP2.active ? "rgba(25, 118, 210, 0.6)" : "rgba(255, 255, 255, 0.15)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.beginPath(); ctx.arc(btnP2.cx, btnP2.cy, btnP2.r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ffffff"; ctx.font = `bold ${H * 0.025}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("ŞUT", btnP2.cx, btnP2.cy);
+}
+
+function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+</script>
+</body>
+</html>
